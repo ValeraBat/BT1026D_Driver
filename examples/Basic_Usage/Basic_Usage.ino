@@ -32,9 +32,9 @@ void setup() {
     Serial.println("BT1026D Basic Example Started.");
 
     // 1. Assign Callbacks
-    btDriver.onLog(onBtLog);
-    btDriver.onStateChange(onBtStateChange);
-    btDriver.onMetadata(onBtMetadata);
+    btDriver.setLogCallback(onBtLog);
+    btDriver.setStateChangeCallback(onBtStateChange);
+    btDriver.setMetadataCallback(onBtMetadata);
 
     // 2. Start driver (Hardware UART2: RX=16, TX=17)
     if (!btDriver.begin(115200, 16, 17)) {

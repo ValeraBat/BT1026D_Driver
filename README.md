@@ -36,7 +36,7 @@ void setup() {
     Serial.begin(115200);
     
     // Register callback
-    btDriver.onStateChange(onStateChanged);
+    btDriver.setStateChangeCallback(onStateChanged);
     
     // Init communication with BT Module (ESP32 pins: RX=16, TX=17)
     btDriver.begin(115200, 16, 17);
