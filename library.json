@@ -1,0 +1,35 @@
+{
+  "name": "BT1026_Driver",
+  "version": "1.0.0",
+  "description": "Asynchronous AT command driver for Feasycom FSC-BT1026 Audio Bluetooth modules using FreeRTOS queues.",
+  "keywords": [
+    "bluetooth",
+    "audio",
+    "feasycom",
+    "bt1026",
+    "a2dp",
+    "avrcp",
+    "hfp",
+    "freertos",
+    "esp32",
+    "at-commands"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/BT1026_Driver.git"
+  },
+  "authors": [
+    {
+      "name": "YOUR_NAME",
+      "email": "YOUR_EMAIL@example.com"
+    }
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/YOUR_USERNAME/BT1026_Driver",
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "espressif32"
+  ]
+}
