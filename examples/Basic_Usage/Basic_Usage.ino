@@ -1,82 +1,51 @@
 #include <Arduino.h>
-#include <BT1026D_driver.h>
+// If you are using an AVR (Uno/Nano) with SoftwareSerial, uncomment the next line
+// #include <SoftwareSerial.h>
+#include "UniversalBT1026.h"
 
-// Use Hardware Serial 2 for the Bluetooth module
-BT1026D btDriver(Serial2);
+UniversalBT1026 bt;
 
-// Callback function to handle module logs
-void onBtLog(const char* msg) {
-    Serial.println(msg); // Forward BT logs to PC Serial Monitor
-}
+// For AVR with SoftwareSerial:
+// SoftwareSerial btSerial(10, 11);
 
-// Callback function to handle connection state changes
-void onBtStateChange(BTConnState newState, BTConnState oldState) {
-    Serial.printf("\n[EVENT] BT State changed from %d to %d\n", (int)oldState, (int)newState);
-    
-    if (newState == BTConnState::PLAYING) {
-        Serial.println(">>> Music is currently playing");
-    } else if (newState == BTConnState::CALL_INCOMING) {
-        Serial.println(">>> BRING RING! Incoming call!");
+// For ESP32 or chips with a second hardware serial port:
+HardwareSerial& btSerial = Serial1;
+
+void btStateChanged(UniversalBT1026::BTState state) {
+    if (state == UniversalBT1026::PLAYING) {
+        Serial.println("Audio is now PLAYING.");
+    } else if (state == UniversalBT1026::CONNECTED) {
+        Serial.println("Device CONNECTED/PAUSED.");
     }
 }
 
-// Callback function to handle metadata (Songs, Caller ID)
-void onBtMetadata(const char* type, const char* data) {
-    Serial.printf("\n[META] %s: %s\n", type, data);
+void btLog(const char* msg) {
+    Serial.print("SYS_LOG: ");
+    Serial.println(msg);
 }
 
 void setup() {
-    // Initialize PC Serial Monitor
     Serial.begin(115200);
-    delay(1000);
-    Serial.println("BT1026D Basic Example Started.");
+    // Be careful, on some ESP32 boards Serial1 needs to be specifically configured with RX/TX pins.
+    // Example for ESP32: btSerial.begin(115200, SERIAL_8N1, 16, 17);
+    btSerial.begin(115200); 
 
-    // 1. Assign Callbacks
-    btDriver.setLogCallback(onBtLog);
-    btDriver.setStateChangeCallback(onBtStateChange);
-    btDriver.setMetadataCallback(onBtMetadata);
+    Serial.println("Starting Universal BT1026 Driver...");
 
-    // 2. Start driver (Hardware UART2: RX=16, TX=17)
-    if (!btDriver.begin(115200, 16, 17)) {
-        Serial.println("Failed to start BT driver context.");
-        while(1); 
-    }
+    bt.onStateChanged(btStateChanged);
+    bt.onLog(btLog);
 
-    // 3. Queue initialization commands
-    Serial.println("Syncing state with BT module...");
-    btDriver.enqueueCommand(BTCmdType::STAT); // Request connection status of all profiles
+    bt.begin(&btSerial);
 }
 
 void loop() {
-    // Process input from PC Serial console to test sending commands to phone
+    bt.loop();
+    
     if (Serial.available()) {
         char c = Serial.read();
-        
-        switch (c) {
-            case 'p':
-                Serial.println("Command: Play/Pause");
-                btDriver.enqueueCommand(BTCmdType::PLAYPAUSE);
-                break;
-            case 'n':
-                Serial.println("Command: Next Track");
-                btDriver.enqueueCommand(BTCmdType::FORWARD);
-                break;
-            case 'b':
-                Serial.println("Command: Previous Track");
-                btDriver.enqueueCommand(BTCmdType::BACKWARD);
-                break;
-            case '+':
-                Serial.println("Command: Volume +");
-                btDriver.enqueueCommand(BTCmdType::SPKVOL, 10);
-                break;
-            case 'a':
-                Serial.println("Command: Answer Call");
-                btDriver.enqueueCommand(BTCmdType::HFPANSW);
-                break;
-            case 'h':
-                Serial.println("Command: Hang Up / Reject Call");
-                btDriver.enqueueCommand(BTCmdType::HFPCHUP);
-                break;
-        }
+        if (c == 'p') bt.play();
+        if (c == 's') bt.pause();
+        if (c == 'n') bt.next();
+        if (c == 'b') bt.prev();
     }
 }
