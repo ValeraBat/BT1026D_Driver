@@ -5,15 +5,6 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 
-// Тип функции для передачи логов наружу (например, в WebUI)
-typedef void (*BTLogCallback)(const char* msg);
-
-// Callback вызывается, когда модуль меняет статус (например, с PAUSED на PLAYING)
-typedef void (*BTStateChangeCallback)(BTConnState newState, BTConnState oldState);
-
-// Callback для передачи метаинформации (Имя трека, номер при звонке и т.д.)
-typedef void (*BTMetadataCallback)(const char* type, const char* data);
-
 //BT1026D STATES
 enum class BTOperationalState {
     UNINITIALIZED,
@@ -33,6 +24,15 @@ enum class BTConnState {
     CALL_INCOMING,
     CALL_ACTIVE
 };
+
+// Тип функции для передачи логов наружу (например, в WebUI)
+typedef void (*BTLogCallback)(const char* msg);
+
+// Callback вызывается, когда модуль меняет статус (например, с PAUSED на PLAYING)
+typedef void (*BTStateChangeCallback)(BTConnState newState, BTConnState oldState);
+
+// Callback для передачи метаинформации (Имя трека, номер при звонке и т.д.)
+typedef void (*BTMetadataCallback)(const char* type, const char* data);
 
 //AT COMMANDS
 enum class BTCmdType {
@@ -56,6 +56,8 @@ enum class BTCmdType {
     SCAN, //Scan Nearvy Bluetooth Devices
     PLIST, //Get/Delete Paired Device List
     DSCA, //Disconnect All
+    A2DPDISC,
+    HFPDISC,
     AUXCFG, //AUXILIARY CONFIGURATION
     TONEPLAY, //Play Tone
     A2DPCFG,
@@ -74,10 +76,13 @@ public:
     BT1026D(HardwareSerial& serial);
     
     // Инициализация (настройка UART, создание Task во FreeRTOS)
-    bool begin(uint32_t baudrate, int rxPin, int txPin);
+    bool begin(uint32_t baudrate, int rxPin, int txPin, int sysCtrlPin);
     
     // Асинхронная отправка команды (положить в очередь)
     bool enqueueCommand(BTCmdType cmd, int param = 0); // По умолчанию параметр 0
+
+    // Отправка кастомной (Raw) команды напрямую для отладки из WebUI
+    void sendRawCommand(const char* cmd);
     
     // Получить текущее состояние плеера/звонков
     BTConnState getConnState() const { return _connState; }
@@ -90,6 +95,7 @@ public:
 
     // Установить callback для метаинформации (треки, номера)
     void setMetadataCallback(BTMetadataCallback cb) { _metaCb = cb; }
+
 
 private:
     HardwareSerial& _serial;
@@ -124,4 +130,6 @@ private:
     void _handleEvent(const char* eventStr);
     
     void _sendPhysicalCommand(BTCommand cmd);
+    void _sendPhysicalCommand(const char* rawCmd); // ТЕПЕРЬ ПРИНИМАЕТ СТРОКУ
+    void _processCommandQueue();
 };

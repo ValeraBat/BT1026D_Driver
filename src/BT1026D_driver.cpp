@@ -13,8 +13,13 @@ BT1026D::BT1026D(HardwareSerial& serial)
     memset(_rxBuffer, 0, sizeof(_rxBuffer));
 }
 
-bool BT1026D::begin(uint32_t baudrate, int rxPin, int txPin) {
+bool BT1026D::begin(uint32_t baudrate, int rxPin, int txPin, int sysCtrlPin) {
     if (_opState != BTOperationalState::UNINITIALIZED) return false;
+
+    pinMode(sysCtrlPin, OUTPUT);
+    digitalWrite(sysCtrlPin, LOW);
+    delay(150);
+    digitalWrite(sysCtrlPin, HIGH);
 
     // 1. Инициализируем железный UART
     _serial.begin(baudrate, SERIAL_8N1, rxPin, txPin);
@@ -25,14 +30,15 @@ bool BT1026D::begin(uint32_t baudrate, int rxPin, int txPin) {
 
     // 3. Создаем задачу FreeRTOS, которая будет крутиться постоянно.
     // Параметры: Функция задачи, Имя для дебага, Размер стека(в байтах), 
-    // Параметр (передаем указатель на себя), Приоритет, Указатель на хэндл
-    BaseType_t success = xTaskCreate(
+    // Параметр (передаем указатель на себя), Приоритет, Указатель на хэндл, Привязка к Ядру
+    BaseType_t success = xTaskCreatePinnedToCore(
         _taskRunner,
         "BT1026D_Task",
         4096,
         this,
         1,
-        &_taskHandle
+        &_taskHandle,
+        0   // Core 0 - PRO_CPU (освобождаем Core 1 для CDC)
     );
 
     if (success != pdPASS) return false;
@@ -45,6 +51,16 @@ bool BT1026D::begin(uint32_t baudrate, int rxPin, int txPin) {
 void BT1026D::_taskRunner(void* pvParameters) {
     BT1026D* instance = static_cast<BT1026D*>(pvParameters);
     instance->_taskLoop(); // Уходим в нормальный метод класса
+}
+
+void BT1026D::_setConnState(BTConnState newState) {
+    if (_connState != newState) {
+        BTConnState oldState = _connState;
+        _connState = newState;
+        if (_stateCb != nullptr) {
+            _stateCb(newState, oldState);
+        }
+    }
 }
 
 // Поместить команду в очередь (вызывается извне, например, из прерываний или основного кода)
@@ -60,14 +76,19 @@ bool BT1026D::enqueueCommand(BTCmdType cmd, int param) {
     return (xQueueSendToBack(_cmdQueue, &newCmd, pdMS_TO_TICKS(10)) == pdTRUE);
 }
 
+// Прямая отправка произвольной AT-команды (например, из WebUI) мимо очереди
+void BT1026D::sendRawCommand(const char* cmd) {
+    _log("[BT RAW TX] %s", cmd);
+    _serial.println(cmd);
+    _opState = BTOperationalState::WAIT_RESPONSE;
+}
+
 void BT1026D::_log(const char* format, ...) {
     char locBuf[256]; // Временный буфер для лога
     va_list args;
     va_start(args, format);
     vsnprintf(locBuf, sizeof(locBuf), format, args);
     va_end(args);
-
-    _log("[BT RX] %s", locBuf);
 
     // Если кто-то "подписался" на наши логи - отдаем ему строку
     if (_logCb != nullptr) {
@@ -113,6 +134,8 @@ void BT1026D::_sendPhysicalCommand(BTCommand cmd) {
         case BTCmdType::REBOOT:    strcpy(cmdStr, "AT+REBOOT\r\n"); break;
         case BTCmdType::FACTORYRESET: strcpy(cmdStr, "AT+RESTORE\r\n"); break;
         case BTCmdType::DSCA:      strcpy(cmdStr, "AT+DSCA\r\n"); break;
+        case BTCmdType::A2DPDISC:  strcpy(cmdStr, "AT+A2DPDISC\r\n"); break;
+        case BTCmdType::HFPDISC:   strcpy(cmdStr, "AT+HFPDISC\r\n"); break;
         case BTCmdType::NAME:      strcpy(cmdStr, "AT+NAME\r\n"); break; // Read name
         case BTCmdType::SCAN:      snprintf(cmdStr, sizeof(cmdStr), "AT+SCAN=%d\r\n", cmd.param); break;
         case BTCmdType::MICMUTE:   snprintf(cmdStr, sizeof(cmdStr), "AT+MICMUTE=%d\r\n", cmd.param); break;
@@ -195,6 +218,14 @@ void BT1026D::_handleEvent(const char* eventStr) {
                     _log("[BT] HFP Disconnected");
                 }
                 break;
+        }
+    }
+    // ПАРСИНГ СОСТОЯНИЯ AVRCP (УПРАВЛЕНИЯ ПЛЕЕРОМ)
+    else if (sscanf(eventStr, "+AVRCPSTAT=%d", &param1) == 1) {
+        if (param1 == 3 || param1 == 4) { // 3 = Connected, 4 = Playing
+            if (_metaCb != nullptr) {
+                _metaCb("AVRCP_READY", "1");
+            }
         }
     }
     // ОБРАБОТКА AT+STAT (может быть разное число параметров в зависимости от прошивки)
